@@ -19,10 +19,16 @@ function isConditionalCheckFailed(error: unknown): boolean {
 }
 
 export async function handler(event: UpsertBookInput): Promise<UpsertBookOutput> {
-  logInfo('UpsertBook invoked', { asin: event.asin, seriesId: event.seriesId });
+  const asin = event.asin?.trim();
+  if (!asin) {
+    logError('UpsertBook missing ASIN', { event });
+    throw new Error('UpsertBook requires an ASIN');
+  }
+
+  logInfo('UpsertBook invoked', { asin, seriesId: event.seriesId });
   const config = loadConfig();
   const dynamo = new DynamoGateway(config.seriesTableName, config.booksTableName);
-  const existing = await dynamo.getBook(event.asin);
+  const existing = await dynamo.getBook(asin);
   const status = existing?.status ?? event.statusDefault ?? BOOK_STATUSES.NOT_STARTED;
 
   const token = await getSecretValue(config.notionTokenSecretName);
@@ -31,13 +37,14 @@ export async function handler(event: UpsertBookInput): Promise<UpsertBookOutput>
   let notionPageId = existing?.notionPageId;
 
   if (!notionPageId) {
-    const query = await notion.queryDatabase(config.notionBooksDatabaseId, buildBookQueryPayload(event.asin));
-    notionPageId = query.results[0]?.id;
+    const query = await notion.queryDatabase(config.notionBooksDatabaseId, buildBookQueryPayload(asin));
+    const existingPage = query.results[0];
+    notionPageId = existingPage?.id;
   }
 
   const bookProps = {
     title: event.title,
-    asin: event.asin,
+    asin,
     status,
     seriesPageId: event.seriesId,
     seriesOrder: event.seriesPos ?? null,
@@ -49,16 +56,17 @@ export async function handler(event: UpsertBookInput): Promise<UpsertBookOutput>
     const created = await notion.createPage(buildBookCreatePayload(config.notionBooksDatabaseId, bookProps));
     notionPageId = created.id;
   } else {
-    await notion.updatePage(notionPageId, buildBookPatchPayload(bookProps));
+    const patchPayload = buildBookPatchPayload(bookProps);
+    await notion.updatePage(notionPageId, { ...patchPayload, archived: false });
   }
 
   if (!notionPageId) {
-    logError('Failed to resolve Notion page ID for book', { asin: event.asin });
+    logError('Failed to resolve Notion page ID for book', { asin });
     throw new Error('Unable to determine Notion book page');
   }
 
   const record: BookDynamoRecord = {
-    asin: event.asin,
+    asin,
     title: event.title,
     author: event.author,
     seriesKey: event.seriesKey,
@@ -73,10 +81,10 @@ export async function handler(event: UpsertBookInput): Promise<UpsertBookOutput>
     await dynamo.putBook(record);
   } catch (error) {
     if (isConditionalCheckFailed(error)) {
-      const latest = await dynamo.getBook(event.asin);
+      const latest = await dynamo.getBook(asin);
       if (latest?.notionPageId) {
         return {
-          asin: event.asin,
+          asin,
           bookId: latest.notionPageId,
           status: latest.status,
           seriesId: event.seriesId
@@ -87,7 +95,7 @@ export async function handler(event: UpsertBookInput): Promise<UpsertBookOutput>
   }
 
   return {
-    asin: event.asin,
+    asin,
     bookId: notionPageId,
     status,
     seriesId: event.seriesId

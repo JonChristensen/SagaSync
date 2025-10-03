@@ -1,7 +1,7 @@
 import {
   DynamoGateway,
+  OpenLibraryLookupOutput,
   SeriesDynamoRecord,
-  UpsertSeriesInput,
   UpsertSeriesOutput,
   buildSeriesCreatePayload,
   buildSeriesQueryPayload,
@@ -16,7 +16,9 @@ function isConditionalCheckFailed(error: unknown): boolean {
   return (error as { name?: string } | undefined)?.name === 'ConditionalCheckFailedException';
 }
 
-export async function handler(event: UpsertSeriesInput): Promise<UpsertSeriesOutput> {
+type UpsertSeriesEvent = OpenLibraryLookupOutput;
+
+export async function handler(event: UpsertSeriesEvent): Promise<UpsertSeriesEvent & UpsertSeriesOutput> {
   logInfo('UpsertSeries invoked', { seriesKey: event.seriesKey });
   const config = loadConfig();
   const dynamo = new DynamoGateway(config.seriesTableName, config.booksTableName);
@@ -24,7 +26,7 @@ export async function handler(event: UpsertSeriesInput): Promise<UpsertSeriesOut
 
   if (existing?.notionPageId) {
     logInfo('Series already recorded', { seriesKey: event.seriesKey });
-    return { seriesKey: event.seriesKey, seriesId: existing.notionPageId };
+    return { ...event, seriesId: existing.notionPageId };
   }
 
   const token = await getSecretValue(config.notionTokenSecretName);
@@ -67,14 +69,14 @@ export async function handler(event: UpsertSeriesInput): Promise<UpsertSeriesOut
     if (isConditionalCheckFailed(error)) {
       const latest = await dynamo.getSeries(event.seriesKey);
       if (latest?.notionPageId) {
-        return { seriesKey: event.seriesKey, seriesId: latest.notionPageId };
+        return { ...event, seriesId: latest.notionPageId };
       }
     }
     throw error;
   }
 
   return {
-    seriesKey: event.seriesKey,
+    ...event,
     seriesId: notionPageId
   };
 }

@@ -141,6 +141,7 @@ export type NotionPropertyValue =
 export interface NotionPage {
   id: string;
   properties: Record<string, NotionPropertyValue>;
+  archived?: boolean;
 }
 
 export interface NotionCreatePagePayload {
@@ -150,6 +151,7 @@ export interface NotionCreatePagePayload {
 
 export interface NotionPatchPagePayload {
   properties: Record<string, NotionPropertyValue>;
+  archived?: boolean;
 }
 
 export interface NotionQueryPayload {
