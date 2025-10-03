@@ -1,0 +1,22 @@
+{
+  "name": "@sagas/infra",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "cdk:synth": "cdk synth",
+    "cdk:diff": "cdk diff",
+    "cdk:deploy": "cdk deploy"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.129.0",
+    "constructs": "^10.3.0"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.129.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

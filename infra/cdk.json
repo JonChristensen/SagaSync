@@ -1,0 +1,18 @@
+{
+  "app": "npx ts-node --project tsconfig.json bin/saga-sync.ts",
+  "context": {
+    "@aws-cdk/core:newStyleStackSynthesis": true,
+    "stages": {
+      "dev": {
+        "notionSeriesDatabaseId": "272b91a41e6c80f386e5cbbfb0dbf425",
+        "notionBooksDatabaseId": "272b91a41e6c80ccbde6f867709ec68c",
+        "notionTokenSecretName": "notion/internal-token"
+      },
+      "prod": {
+        "notionSeriesDatabaseId": "<replace-with-prod-series-db-id>",
+        "notionBooksDatabaseId": "<replace-with-prod-books-db-id>",
+        "notionTokenSecretName": "notion/internal-token"
+      }
+    }
+  }
+}
