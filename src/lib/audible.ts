@@ -4,7 +4,7 @@ import { BOOK_STATUSES } from './constants';
 import { NormalizedCsvRow } from './types';
 
 export interface AudibleCsvOptions {
-  source?: string;
+  source?: NormalizedCsvRow['source'];
 }
 
 interface AudibleCsvRecord {

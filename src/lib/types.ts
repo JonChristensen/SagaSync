@@ -6,7 +6,7 @@ export interface NormalizedCsvRow {
   asin: string;
   purchasedAt: string;
   statusDefault: BookStatus;
-  source: 'Audible';
+  source: 'Audible' | 'Open Library';
 }
 
 export interface OpenLibraryLookupInput extends NormalizedCsvRow {}
