@@ -1,5 +1,5 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { BookDynamoRecord, SeriesDynamoRecord } from './types';
 
 const documentClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -59,5 +59,29 @@ export class DynamoGateway {
     });
 
     await this.client.send(command);
+  }
+
+  async listBooksBySeries(seriesKey: string): Promise<BookDynamoRecord[]> {
+    const records: BookDynamoRecord[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+
+    do {
+      const command = new ScanCommand({
+        TableName: this.booksTableName,
+        FilterExpression: 'seriesKey = :seriesKey',
+        ExpressionAttributeValues: {
+          ':seriesKey': seriesKey
+        },
+        ExclusiveStartKey: exclusiveStartKey
+      });
+
+      const { Items, LastEvaluatedKey } = await this.client.send(command);
+      if (Items) {
+        records.push(...(Items as BookDynamoRecord[]));
+      }
+      exclusiveStartKey = LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (exclusiveStartKey);
+
+    return records;
   }
 }

@@ -85,6 +85,8 @@ export class SagaSyncStack extends Stack {
     seriesTable.grantReadData(upsertBookFn);
     seriesTable.grantReadWriteData(cascadeFn);
     seriesTable.grantReadWriteData(syncSeriesFn);
+    seriesTable.grantReadWriteData(webhookStartedFn);
+    seriesTable.grantReadWriteData(webhookFinishedFn);
 
     booksTable.grantReadWriteData(upsertBookFn);
     booksTable.grantReadWriteData(cascadeFn);

@@ -106,6 +106,14 @@ export function buildBookPatchPayload(props: BookPropertiesArgs): NotionPatchPag
   };
 }
 
+export function buildBookStatusPatch(status: BookStatus): NotionPatchPagePayload {
+  return {
+    properties: {
+      Status: statusProperty(status)
+    }
+  };
+}
+
 function buildBookProperties(props: BookPropertiesArgs): Record<string, NotionPropertyValue> {
   return {
     Name: titleProperty(props.title),

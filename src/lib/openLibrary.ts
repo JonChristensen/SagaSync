@@ -1,3 +1,6 @@
+import { fetch } from 'undici';
+import { OPEN_LIBRARY_ENDPOINT } from './constants';
+import { logDebug, logError } from './logger';
 import { NormalizedCsvRow, OpenLibraryLookupOutput, OpenLibraryResponse } from './types';
 
 const HARRY_POTTER_TOKEN = 'harry potter';
@@ -20,7 +23,9 @@ export function extractSeriesPosition(raw?: string): number | null {
 function normaliseSeriesName(raw: string | undefined, fallback: string): string {
   if (!raw) return fallback;
   const cleaned = raw.replace(/[#()]/g, '').trim();
-  return cleaned.length > 0 ? cleaned : fallback;
+  const withoutTrailingNumber = cleaned.replace(/\s+\d+$/, '').trim();
+  const result = withoutTrailingNumber.length > 0 ? withoutTrailingNumber : cleaned;
+  return result.length > 0 ? result : fallback;
 }
 
 export function inferSeriesFromDoc(
@@ -57,9 +62,37 @@ export function inferSeriesFromDoc(
   return { seriesName: fallbackTitle, seriesPos: null };
 }
 
+async function queryOpenLibrary(row: NormalizedCsvRow): Promise<OpenLibraryResponse | undefined> {
+  const url = new URL(OPEN_LIBRARY_ENDPOINT);
+  url.searchParams.set('title', row.title);
+  url.searchParams.set('author', row.author);
+  url.searchParams.set('limit', '5');
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      logError('Open Library request failed', { status: response.status });
+      return undefined;
+    }
+
+    const payload = (await response.json()) as OpenLibraryResponse;
+    logDebug('Open Library response received', { docs: payload.docs?.length ?? 0 });
+    return payload;
+  } catch (error) {
+    logError('Open Library lookup errored', { error });
+    return undefined;
+  }
+}
+
 export async function lookupSeriesMetadata(row: NormalizedCsvRow, response?: OpenLibraryResponse): Promise<OpenLibraryLookupOutput> {
-  // TODO: invoke Open Library API when HTTP client wiring is ready; use the provided `response` for tests until then.
-  const { seriesName, seriesPos } = inferSeriesFromDoc(row, response);
+  const apiResponse = response ?? (await queryOpenLibrary(row));
+  const { seriesName, seriesPos } = inferSeriesFromDoc(row, apiResponse);
   return {
     ...row,
     seriesName,
