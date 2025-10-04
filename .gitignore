@@ -4,3 +4,5 @@ cdk.out/
 .env
 coverage/
 .auth/
+downloads/
+scripts/__pycache__/
