@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { lookupSeriesMetadata, SAMPLE_LIBRARY } from '@shared';
+import { lookupSeriesMetadata, lookupSeriesVolumes, SAMPLE_LIBRARY } from '@shared';
 
 const fetchMock = vi.hoisted(() => vi.fn());
 
@@ -13,6 +13,39 @@ beforeEach(() => {
     ok: true,
     status: 200,
     json: async () => ({ docs: [] })
+  });
+});
+
+describe('lookupSeriesVolumes', () => {
+  test('returns ordered, deduplicated volumes', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        docs: [
+          {
+            title: 'The Two Towers',
+            author_name: ['J. R. R. Tolkien'],
+            series: ['The Lord of the Rings (2)']
+          },
+          {
+            title: 'The Return of the King',
+            author_name: ['J. R. R. Tolkien'],
+            series: ['The Lord of the Rings (3)']
+          },
+          {
+            title: 'The Return of the King',
+            author_name: ['J. R. R. Tolkien'],
+            series: ['The Lord of the Rings (3)']
+          }
+        ]
+      })
+    });
+
+    const volumes = await lookupSeriesVolumes('The Lord of the Rings');
+    expect(volumes).toHaveLength(2);
+    expect(volumes[0]).toMatchObject({ title: 'The Two Towers', order: 2 });
+    expect(volumes[1]).toMatchObject({ title: 'The Return of the King', order: 3 });
   });
 });
 

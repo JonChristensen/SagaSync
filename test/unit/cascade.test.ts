@@ -92,14 +92,15 @@ beforeEach(() => {
 
 describe('cascadeIfNeeded handler', () => {
   it('trashes siblings when a book enters La Poubelle', async () => {
-    mocks.getBookMock.mockResolvedValue({
-      asin: 'LOTR2-TEST',
-      title: 'The Two Towers',
-      author: 'J. R. R. Tolkien',
-      seriesKey: 'tolkien|lotr',
-      status: BOOK_STATUSES.IN_PROGRESS,
-      updatedAt: 100
-    });
+  mocks.getBookMock.mockResolvedValue({
+    asin: 'LOTR2-TEST',
+    title: 'The Two Towers',
+    author: 'J. R. R. Tolkien',
+    seriesKey: 'tolkien|lotr',
+    status: BOOK_STATUSES.IN_PROGRESS,
+    updatedAt: 100,
+    owned: true
+  });
 
     mocks.listBooksBySeriesMock.mockResolvedValue([
       {
@@ -109,7 +110,8 @@ describe('cascadeIfNeeded handler', () => {
         seriesKey: 'tolkien|lotr',
         status: BOOK_STATUSES.NOT_STARTED,
         notionPageId: 'book-1',
-        updatedAt: 90
+        updatedAt: 90,
+        owned: true
       },
       {
         asin: 'LOTR2-TEST',
@@ -118,7 +120,8 @@ describe('cascadeIfNeeded handler', () => {
         seriesKey: 'tolkien|lotr',
         status: BOOK_STATUSES.IN_PROGRESS,
         notionPageId: 'book-2',
-        updatedAt: 95
+        updatedAt: 95,
+        owned: true
       },
       {
         asin: 'LOTR3-TEST',
@@ -127,7 +130,8 @@ describe('cascadeIfNeeded handler', () => {
         seriesKey: 'tolkien|lotr',
         status: BOOK_STATUSES.FINISHED,
         notionPageId: 'book-3',
-        updatedAt: 80
+        updatedAt: 80,
+        owned: true
       }
     ]);
 
@@ -157,7 +161,8 @@ describe('cascadeIfNeeded handler', () => {
       author: 'J. R. R. Tolkien',
       seriesKey: 'tolkien|lotr',
       status: BOOK_STATUSES.FINISHED,
-      updatedAt: 120
+      updatedAt: 120,
+      owned: true
     });
 
     mocks.listBooksBySeriesMock.mockResolvedValue([
@@ -168,7 +173,8 @@ describe('cascadeIfNeeded handler', () => {
         seriesKey: 'tolkien|lotr',
         status: BOOK_STATUSES.FINISHED,
         notionPageId: 'book-1',
-        updatedAt: 90
+        updatedAt: 90,
+        owned: true
       },
       {
         asin: 'LOTR2-TEST',
@@ -177,7 +183,8 @@ describe('cascadeIfNeeded handler', () => {
         seriesKey: 'tolkien|lotr',
         status: BOOK_STATUSES.FINISHED,
         notionPageId: 'book-2',
-        updatedAt: 95
+        updatedAt: 95,
+        owned: true
       },
       {
         asin: 'LOTR3-TEST',
@@ -186,7 +193,8 @@ describe('cascadeIfNeeded handler', () => {
         seriesKey: 'tolkien|lotr',
         status: BOOK_STATUSES.FINISHED,
         notionPageId: 'book-3',
-        updatedAt: 120
+        updatedAt: 120,
+        owned: true
       }
     ]);
 

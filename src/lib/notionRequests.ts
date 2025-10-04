@@ -91,6 +91,7 @@ export interface BookPropertiesArgs {
   seriesOrder: number | null;
   purchasedAt: string;
   source: string;
+  owned?: boolean;
 }
 
 export function buildBookCreatePayload(databaseId: string, props: BookPropertiesArgs): NotionCreatePagePayload {
@@ -114,6 +115,14 @@ export function buildBookStatusPatch(status: BookStatus): NotionPatchPagePayload
   };
 }
 
+export function buildOwnedFlagPatch(owned: boolean): NotionPatchPagePayload {
+  return {
+    properties: {
+      Owned: selectProperty(owned ? 'Yes' : 'No')
+    }
+  };
+}
+
 function buildBookProperties(props: BookPropertiesArgs): Record<string, NotionPropertyValue> {
   return {
     Name: titleProperty(props.title),
@@ -122,6 +131,7 @@ function buildBookProperties(props: BookPropertiesArgs): Record<string, NotionPr
     Series: relationProperty(props.seriesPageId),
     'Series Order': numberProperty(props.seriesOrder),
     'Purchased At': dateProperty(props.purchasedAt),
-    Source: selectProperty(props.source)
+    Source: selectProperty(props.source),
+    Owned: selectProperty(props.owned === false ? 'No' : 'Yes')
   };
 }

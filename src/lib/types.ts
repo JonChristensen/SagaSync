@@ -91,6 +91,7 @@ export interface BookDynamoRecord {
   seriesOrder?: number | null;
   purchasedAt?: string;
   updatedAt: number;
+  owned?: boolean;
 }
 
 export interface SeriesDynamoRecord {
@@ -161,4 +162,10 @@ export interface NotionQueryPayload {
 
 export interface NotionQueryResponse {
   results: NotionPage[];
+}
+
+export interface SeriesVolume {
+  title: string;
+  author?: string;
+  order: number | null;
 }

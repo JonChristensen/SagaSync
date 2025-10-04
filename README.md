@@ -1,106 +1,87 @@
-# SagaSync Kanban Automation (Scaffold)
+# SagaSync Audiobook Sync
 
-Serverless scaffolding that will ingest an audiobook library, enrich it with Open Library, and keep two Notion databases (Series + Books) in sync. This milestone focuses on infrastructure, typed contracts, request builders, and executable stubs so we can iterate toward production safely.
+SagaSync keeps your audiobook library, enriched metadata, and Notion dashboards in lockstep. The current iteration focuses on:
+
+- Ingesting Audible exports and normalising them into a shared data model.
+- Enriching every title with Open Library series metadata (including volumes you do **not** own yet).
+- Writing canonical records to DynamoDB for idempotent retries.
+- Mirroring series + book state into Notion with cascade rules and webhook updates.
 
 ## Repository Layout
-`
+```
 infra/                       # AWS CDK app (TypeScript)
-functions/
-  openLibraryLookup/
-  upsertSeries/
-  upsertBook/
-  cascade/
-  syncSeriesFinalStatus/
-  api/
-    import/
-    webhookStarted/
-    webhookFinished/
-src/lib/                     # Shared types, helpers, Notion/Dynamo stubs, sample data
-scripts/                     # Helper CLI scripts (e.g., invoke sample flow)
+functions/                   # Lambda handlers (Open Library, upserts, cascade, webhooks)
+src/lib/                     # Shared helpers, request builders, Dynamo/Notion gateway
+scripts/                     # CLI utilities (sample invoke, Audible import)
 test/                        # Vitest unit + integration suites
-`
+```
 
-## Infrastructure (CDK)
-The CDK stack provisions:
-- DynamoDB tables SagaSync-Series-<stage> and SagaSync-Books-<stage>.
-- Lambda functions for each workflow step and API endpoint (Node.js 20).
-- Step Functions state machine LookupSeriesMetadata ? UpsertSeries ? UpsertBook ? CascadeIfNeeded with generic retry/backoff.
-- API Gateway routes: POST /import, POST /webhook/started, POST /webhook/finished.
-- Secrets Manager access policy so service Lambdas can read the Notion integration token.
-- Placeholder EventBridge rule (disabled) pointing at syncSeriesFinalStatus for future automation.
-- CloudFormation outputs for the Step Functions ARN and deployed API URL.
+## Quick Start
+1. **Install & build**
+   ```bash
+   npm install
+   npm run build
+   npm test
+   ```
+2. **Configure AWS/Notion**
+   - Copy `.env.example` → `.env` and fill in Notion database IDs + Secrets Manager name.
+   - Deploy infrastructure: `npm run deploy` (wraps `cdk deploy`).
+3. **Seed with Audible data**
+   - Export CSV from Audible (web UI → Library → “Export”).
+   - Preview the import:
+     ```bash
+     npm run import:audible -- ~/Downloads/Audible_Library.csv
+     ```
+   - When you’re satisfied, send it to the deployed API:
+     ```bash
+     npm run import:audible -- ~/Downloads/Audible_Library.csv \
+       --api-url https://<api-id>.execute-api.us-east-1.amazonaws.com/dev/import \
+       --commit
+     ```
+   - Imports are idempotent: re-running the same CSV only patches existing records.
+4. **Webhooks**
+   - Audible listening status updates can POST to `/webhook/started` or `/webhook/finished`. They update Dynamo/Notion, then invoke the cascade logic so series state stays consistent.
 
-Use 
-pm run synth (or cd infra && npm run cdk:synth -- --context stage=dev) to confirm the template, then 
-pm run deploy when you are ready.
-
-## Function Contracts & Idempotency Notes
-Shared TypeScript interfaces live in src/lib/types.ts. Every function stub imports these contracts so signatures are already aligned.
-
-Key guards (to implement next):
-- **Always read DynamoDB first.** If a Series record with 
-otionPageId exists, skip Notion create calls. Books behave the same via sin.
-- **Serialize series creation.** Use conditional writes or transactions on the Series table so concurrent executions race safely.
-- **Redundant PATCH avoidance.** Compare the desired state (final status, book status, etc.) before performing Notion PATCH operations.
-- **La Poubelle cascade (one way).** When any book enters La Poubelle, mark all Not started/In progress siblings likewise and set the Series Final Status = La Poubelle. Finished books stay untouched. Promotion out of La Poubelle should be manual for now.
-
-## Notion Request Builders
-src/lib/notionRequests.ts contains helper builders that emit the exact payload shapes we already validated:
-- Create/Query Series by Series Key.
-- Create/Query Books by ASIN.
-- Patch Books (relations, status, purchased date, source, series order).
-- Patch Series Final Status.
-Always send these bodies with the headers documented below to avoid the common pitfalls (stringified JSON, missing Notion-Version, etc.).
-
-### Required Headers for every Notion call
-`
-Authorization: Bearer <token>
-Notion-Version: 2022-06-28
-Content-Type: application/json
-`
-
-## Sample Data & Tests
-- src/lib/sampleData.ts lists the four sample books (LOTR + HP). The same data drives unit tests and the invoke script.
-- 	est/unit/openLibraryLookup.test.ts ensures fallback heuristics map the samples to The Lord of the Rings and Harry Potter.
-- 	est/unit/*.test.ts scaffolds additional expectations (currently skipped) for series upserts and cascade behaviour.
-- 	est/integration/workflow.test.ts smoke tests the intended Step Functions step order.
-Run the suite with 
-pm test.
+## How retry-safe imports work
+- **Dynamo first** – Every handler reads DynamoDB before writing. Existing records short-circuit create calls; updates use conditional puts to avoid race conditions.
+- **Series enrichment** – After importing a book, we fetch all volumes from Open Library. Missing volumes are inserted with a synthetic `virtual:<seriesKey>-<slug>` ASIN and `owned=false`. When you eventually own that book, the real import replaces the virtual entry instead of duplicating it.
+- **Notion mirrors** – Notion pages carry the same flags (`Status`, `Owned`, etc.). Synthetic volumes default to `Owned = No`; owned titles flip to `Yes` automatically.
+- **Cleanup** – To wipe synthetic volumes, delete Dynamo rows where `owned=false` (and optionally archive the matching Notion pages). Real Audible imports recreate them as needed.
 
 ## Scripts & Tooling
-- 
-pm run build � type-checks the entire project.
-- 
-pm test � runs Vitest.
-- 
-pm run synth / 
-pm run deploy � proxy to CDK commands.
-- 
-pm run invoke:sample � placeholder CLI that will eventually drive Step Functions with the sample dataset.
+- `npm run build` – type checks the repo.
+- `npm test` – runs the Vitest suite.
+- `npm run synth` / `npm run deploy` – CDK synth & deploy wrappers.
+- `npm run invoke:sample` – drives the Step Functions state machine with sample payloads.
+- `npm run import:audible -- <file> [--api-url <url>] [--commit]` – parses Audible exports and optionally POSTs them to the import API.
 
-## Environment Configuration
-Populate .env (see .env.example) or equivalent Lambda environment variables:
-- NOTION_TOKEN_SECRET_NAME=notion/internal-token
-- NOTION_SERIES_DB_ID=<uuid>
-- NOTION_BOOKS_DB_ID=<uuid>
-- NOTION_VERSION=2022-06-28
-- TZ=America/Denver
-- SERIES_TABLE_NAME, BOOKS_TABLE_NAME (injected by CDK)
-- STATE_MACHINE_ARN (set on the importer Lambda after deployment)
+## Environment configuration
+Set the following (via `.env`, shell exports, or Lambda configuration):
 
-infra/cdk.json carries stage-specific Notion database IDs; pass --context stage=<stage> when synthesising/deploying.
+| Variable | Purpose |
+| --- | --- |
+| `NOTION_TOKEN_SECRET_NAME` | Name of the Secrets Manager secret that stores the Notion integration token. |
+| `NOTION_SERIES_DB_ID` | Notion Series database ID. |
+| `NOTION_BOOKS_DB_ID` | Notion Books database ID. |
+| `NOTION_VERSION` | Notion API version (`2022-06-28`). |
+| `TZ` | Time zone (`America/Denver` by default). |
 
-## Known Pitfalls (call-outs)
-- Notion expects property arrays (e.g., 	itle: [{ text: { content } }]). The builders adhere to this format�re-use them.
-- JSON numbers must be emitted as numbers, not quoted strings. Avoid manual string interpolation when PATCHing Series Order.
-- Missing Notion-Version header causes query responses to ignore filters; always set it.
-- Step Functions retries must be safe: every Lambda should be idempotent so a re-run translates to a PATCH, not a duplicate POST.
+CDK injects `SERIES_TABLE_NAME`, `BOOKS_TABLE_NAME`, and Step Functions environment variables during deployment.
 
-## Next Implementation Tasks
-1. Implement the DynamoDB and Notion gateways, including conditional writes for series/book idempotency and caching the latest statuses.
-2. Wire the Open Library HTTP call with retries/backoff and merge the deterministic fallbacks.
-3. Replace Lambda stubs with real logic (using the helpers above) and un-skip the behavioural tests.
-4. Flesh out scripts/invokeSample.ts to start a Step Functions execution per sample book record.
-5. Extend testing with mocks/fakes for Notion + DynamoDB to validate cascade rules end-to-end.
+## Testing
+- Unit tests live under `test/unit`. Many use mocks for Dynamo/Notion/Open Library.
+- `test/integration/workflow.test.ts` ensures the Step Functions definition lines up with expectations.
+- Add new tests alongside the relevant module; `npm test` runs everything headlessly.
 
-With this scaffold in place, we can now iterate on production behaviour while staying confident about payload shapes, infrastructure, and env wiring.
+## Known limitations
+- Open Library coverage isn’t perfect; some series may return incomplete volume lists.
+- Audible export parsing assumes the standard column headers. If the format shifts, update `src/lib/audible.ts`.
+- Webhook endpoints currently accept minimal payloads (asin + optional status). Broader metadata will require schema updates.
+
+## Future enhancements
+- Automated cleanup CLI for synthetic (`owned=false`) volumes.
+- Full Step Functions integration tests with mocked Notion/Dynamo clients.
+- Additional data sources for series/enrichment when Open Library falls short.
+- Optional scheduler to refresh series metadata periodically.
+
+With these pieces in place, you can safely iterate on the logic, redeploy often, and retry imports without corrupting your Notion workspace.

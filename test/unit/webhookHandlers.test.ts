@@ -80,7 +80,8 @@ beforeEach(() => {
     seriesKey: 'tolkien|lotr',
     status: BOOK_STATUSES.NOT_STARTED,
     notionPageId: 'book-page',
-    updatedAt: 1
+    updatedAt: 1,
+    owned: true
   });
   sharedMocks.putBookMock.mockResolvedValue(undefined);
   sharedMocks.updatePageMock.mockResolvedValue(undefined);

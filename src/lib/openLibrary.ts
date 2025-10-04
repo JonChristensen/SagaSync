@@ -1,7 +1,12 @@
 import { fetch } from 'undici';
 import { OPEN_LIBRARY_ENDPOINT } from './constants';
 import { logDebug, logError } from './logger';
-import { NormalizedCsvRow, OpenLibraryLookupOutput, OpenLibraryResponse } from './types';
+import {
+  NormalizedCsvRow,
+  OpenLibraryLookupOutput,
+  OpenLibraryResponse,
+  SeriesVolume
+} from './types';
 
 const HARRY_POTTER_TOKEN = 'harry potter';
 const ROWLING_TOKEN = 'rowling';
@@ -99,4 +104,64 @@ export async function lookupSeriesMetadata(row: NormalizedCsvRow, response?: Ope
     seriesPos,
     seriesKey: buildSeriesKey(row.author, seriesName)
   };
+}
+
+export async function lookupSeriesVolumes(seriesName: string): Promise<SeriesVolume[]> {
+  if (!seriesName) {
+    return [];
+  }
+
+  const url = new URL(OPEN_LIBRARY_ENDPOINT);
+  url.searchParams.set('q', `series:"${seriesName}"`);
+  url.searchParams.set('limit', '40');
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      logError('Open Library series lookup failed', { seriesName, status: response.status });
+      return [];
+    }
+
+    const payload = (await response.json()) as OpenLibraryResponse;
+    const volumes = new Map<string, SeriesVolume>();
+
+    for (const doc of payload.docs ?? []) {
+      const title = doc.title?.trim();
+      if (!title) continue;
+
+      const seriesEntry = doc.series?.find((entry) => entry.toLowerCase().includes(seriesName.toLowerCase()));
+      const order = extractSeriesPosition(seriesEntry);
+      const key = `${order ?? ''}|${title.toLowerCase()}`;
+      if (volumes.has(key)) continue;
+
+      volumes.set(key, {
+        title,
+        author: doc.author_name?.[0],
+        order
+      });
+    }
+
+    const ordered = Array.from(volumes.values()).sort((a, b) => {
+      if (a.order === null && b.order === null) return a.title.localeCompare(b.title);
+      if (a.order === null) return 1;
+      if (b.order === null) return -1;
+      return a.order - b.order;
+    });
+
+    logDebug('Open Library series volumes resolved', {
+      seriesName,
+      count: ordered.length
+    });
+
+    return ordered;
+  } catch (error) {
+    logError('Open Library series lookup errored', { seriesName, error });
+    return [];
+  }
 }

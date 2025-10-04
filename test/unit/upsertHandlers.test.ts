@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
   const putBookMock = vi.fn();
   const getSeriesMock = vi.fn();
   const putSeriesMock = vi.fn();
+  const listBooksBySeriesMock = vi.fn();
   const queryDatabaseMock = vi.fn();
   const createPageMock = vi.fn();
   const updatePageMock = vi.fn();
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => {
   const buildBookPatchPayloadMock = vi.fn((props: unknown) => ({ props }));
   const buildSeriesQueryPayloadMock = vi.fn((seriesKey: string) => ({ seriesKey }));
   const buildSeriesCreatePayloadMock = vi.fn((db: string, name: string, key: string) => ({ db, name, key }));
+  const lookupSeriesVolumesMock = vi.fn();
   const logInfoMock = vi.fn();
   const logErrorMock = vi.fn();
 
@@ -28,6 +30,7 @@ const mocks = vi.hoisted(() => {
     putBookMock,
     getSeriesMock,
     putSeriesMock,
+    listBooksBySeriesMock,
     queryDatabaseMock,
     createPageMock,
     updatePageMock,
@@ -36,6 +39,7 @@ const mocks = vi.hoisted(() => {
     buildBookPatchPayloadMock,
     buildSeriesQueryPayloadMock,
     buildSeriesCreatePayloadMock,
+    lookupSeriesVolumesMock,
     logInfoMock,
     logErrorMock
   };
@@ -54,6 +58,7 @@ vi.mock('@shared', () => {
     putBook = mocks.putBookMock;
     getSeries = mocks.getSeriesMock;
     putSeries = mocks.putSeriesMock;
+    listBooksBySeries = mocks.listBooksBySeriesMock;
   }
 
   class MockNotionGateway {
@@ -73,6 +78,7 @@ vi.mock('@shared', () => {
     buildBookPatchPayload: mocks.buildBookPatchPayloadMock,
     buildSeriesQueryPayload: mocks.buildSeriesQueryPayloadMock,
     buildSeriesCreatePayload: mocks.buildSeriesCreatePayloadMock,
+    lookupSeriesVolumes: mocks.lookupSeriesVolumesMock,
     logInfo: mocks.logInfoMock,
     logError: mocks.logErrorMock
   };
@@ -94,6 +100,8 @@ describe('UpsertBook handler', () => {
     mocks.updatePageMock.mockResolvedValue({ id: 'updated-notion-id' });
     mocks.getBookMock.mockResolvedValue(null);
     mocks.putBookMock.mockResolvedValue(undefined);
+    mocks.lookupSeriesVolumesMock.mockResolvedValue([]);
+    mocks.listBooksBySeriesMock.mockResolvedValue([]);
   });
 
   it('trims the ASIN before persisting or calling downstream services', async () => {
@@ -111,8 +119,8 @@ describe('UpsertBook handler', () => {
 
     expect(mocks.getBookMock).toHaveBeenCalledWith('LOTR1-TEST');
     expect(mocks.buildBookQueryPayloadMock).toHaveBeenCalledWith('LOTR1-TEST');
-    expect(mocks.buildBookCreatePayloadMock).toHaveBeenCalledWith('books-db', expect.objectContaining({ asin: 'LOTR1-TEST' }));
-    expect(mocks.putBookMock).toHaveBeenCalledWith(expect.objectContaining({ asin: 'LOTR1-TEST' }));
+    expect(mocks.buildBookCreatePayloadMock).toHaveBeenCalledWith('books-db', expect.objectContaining({ asin: 'LOTR1-TEST', owned: true }));
+    expect(mocks.putBookMock).toHaveBeenCalledWith(expect.objectContaining({ asin: 'LOTR1-TEST', owned: true }));
     expect(result.asin).toBe('LOTR1-TEST');
     expect(result.bookId).toBe('new-notion-id');
   });
@@ -125,7 +133,8 @@ describe('UpsertBook handler', () => {
       seriesKey: 'tolkien|lotr',
       status: BOOK_STATUSES.IN_PROGRESS,
       notionPageId: 'existing-page',
-      updatedAt: 123
+      updatedAt: 123,
+      owned: true
     });
 
     const result = await upsertBook({
@@ -173,6 +182,36 @@ describe('UpsertBook handler', () => {
       expect.objectContaining({ archived: false })
     );
     expect(result.bookId).toBe('archived-page');
+  });
+
+  it('creates synthetic volumes for missing books', async () => {
+    mocks.lookupSeriesVolumesMock.mockResolvedValueOnce([
+      { title: 'The Return of the King', order: 3, author: 'J. R. R. Tolkien' }
+    ]);
+    mocks.createPageMock.mockResolvedValueOnce({ id: 'virtual-page' });
+
+    await upsertBook({
+      title: 'The Two Towers',
+      author: 'J. R. R. Tolkien',
+      asin: 'LOTR2-TEST',
+      purchasedAt: '2025-08-22',
+      statusDefault: BOOK_STATUSES.NOT_STARTED,
+      source: 'Audible',
+      seriesKey: 'tolkien|lotr',
+      seriesId: 'series-id',
+      seriesPos: 2
+    });
+
+    const syntheticCall = mocks.buildBookCreatePayloadMock.mock.calls[1];
+    expect(syntheticCall?.[0]).toBe('books-db');
+    expect(syntheticCall?.[1]).toMatchObject({
+      owned: false,
+      source: 'Open Library'
+    });
+    expect(mocks.putBookMock).toHaveBeenCalledWith(expect.objectContaining({
+      owned: false,
+      asin: expect.stringContaining('virtual:')
+    }));
   });
 });
 
