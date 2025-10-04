@@ -12,5 +12,6 @@
 - [x] Enrich series with missing volumes and mark "not owned" books in Dynamo/Notion
 - [ ] Add guardrails for retrying (dry-run mode, idempotent tagging, optional cleanup)
 - [ ] Document Audible import workflow + retry semantics in README
+- [ ] Automate Audible export download (Playwright helper CLI)
 - [x] Deploy latest Lambda changes (`npm run deploy`) and verify import flow still succeeds
 - [x] Investigate Notion page archival status before patching existing book pages
