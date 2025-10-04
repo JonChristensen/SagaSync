@@ -27,7 +27,8 @@ test/                        # Vitest unit + integration suites
    - Copy `.env.example` → `.env` and fill in Notion database IDs + Secrets Manager name.
    - Deploy infrastructure: `npm run deploy` (wraps `cdk deploy`).
 3. **Seed with Audible data**
-   - `npm run audible:export` opens a Playwright-powered Chromium window (session cached under `.auth/audible`). Log in once if prompted; the script downloads the latest CSV to `./downloads/audible-library-<timestamp>.csv` by default.
+   - Install the Audible helper once: `pip install -r scripts/requirements.txt`.
+   - `npm run audible:export` calls a Python script that uses the Audible API to fetch your library and saves the CSV to `./downloads/audible-library-<timestamp>.csv` by default (override with `--output`).
    - Preview the import from that CSV:
      ```bash
      npm run import:audible -- downloads/audible-library-2025-10-03T19-30-00.csv
@@ -53,7 +54,7 @@ test/                        # Vitest unit + integration suites
 - `npm test` – runs the Vitest suite.
 - `npm run synth` / `npm run deploy` – CDK synth & deploy wrappers.
 - `npm run invoke:sample` – drives the Step Functions state machine with sample payloads.
-- `npm run audible:export [--output <dir>] [--headless]` – launches Playwright, lets you log in to Audible, and downloads the CSV export (stored in `./downloads` by default).
+- `npm run audible:export [--output <dir>] [--locale us|uk|...] [--email <user>] [--password <pass>]` – uses the Audible API (via Python `audible` library) to fetch your library and store it as CSV under `./downloads` by default. Credentials are cached in `.auth/audible_credentials.json` after the first run.
 - `npm run import:audible -- <file> [--api-url <url>] [--commit]` – parses Audible exports and optionally POSTs them to the import API.
 
 ## Environment configuration
