@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BOOK_STATUSES } from '@shared';
+import { BOOK_STATUSES, SeriesMetadataResult } from '@shared';
 import { handler as upsertBook } from '@functions/upsertBook';
 import { handler as upsertSeries } from '@functions/upsertSeries';
 
@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => {
   const buildBookPatchPayloadMock = vi.fn((props: unknown) => ({ props }));
   const buildSeriesQueryPayloadMock = vi.fn((seriesKey: string) => ({ seriesKey }));
   const buildSeriesCreatePayloadMock = vi.fn((db: string, name: string, key: string) => ({ db, name, key }));
-  const lookupSeriesVolumesMock = vi.fn();
   const logInfoMock = vi.fn();
   const logErrorMock = vi.fn();
 
@@ -39,7 +38,6 @@ const mocks = vi.hoisted(() => {
     buildBookPatchPayloadMock,
     buildSeriesQueryPayloadMock,
     buildSeriesCreatePayloadMock,
-    lookupSeriesVolumesMock,
     logInfoMock,
     logErrorMock
   };
@@ -51,6 +49,12 @@ vi.mock('@shared', () => {
     IN_PROGRESS: 'In progress',
     FINISHED: 'Finished',
     LA_POUBELLE: 'La Poubelle'
+  } as const;
+  const BOOK_STATUS_PRIORITY = {
+    [BOOK_STATUSES.NOT_STARTED]: 0,
+    [BOOK_STATUSES.IN_PROGRESS]: 1,
+    [BOOK_STATUSES.FINISHED]: 2,
+    [BOOK_STATUSES.LA_POUBELLE]: 3
   } as const;
 
   class MockDynamoGateway {
@@ -78,9 +82,9 @@ vi.mock('@shared', () => {
     buildBookPatchPayload: mocks.buildBookPatchPayloadMock,
     buildSeriesQueryPayload: mocks.buildSeriesQueryPayloadMock,
     buildSeriesCreatePayload: mocks.buildSeriesCreatePayloadMock,
-    lookupSeriesVolumes: mocks.lookupSeriesVolumesMock,
     logInfo: mocks.logInfoMock,
-    logError: mocks.logErrorMock
+    logError: mocks.logErrorMock,
+    BOOK_STATUS_PRIORITY
   };
 });
 
@@ -100,7 +104,6 @@ describe('UpsertBook handler', () => {
     mocks.updatePageMock.mockResolvedValue({ id: 'updated-notion-id' });
     mocks.getBookMock.mockResolvedValue(null);
     mocks.putBookMock.mockResolvedValue(undefined);
-    mocks.lookupSeriesVolumesMock.mockResolvedValue([]);
     mocks.listBooksBySeriesMock.mockResolvedValue([]);
   });
 
@@ -113,8 +116,10 @@ describe('UpsertBook handler', () => {
       statusDefault: BOOK_STATUSES.NOT_STARTED,
       source: 'Audible',
       seriesKey: 'tolkien|lotr',
+      seriesName: 'The Lord of the Rings',
       seriesId: 'series-id',
-      seriesPos: 1
+      seriesPos: 1,
+      seriesMatch: true
     });
 
     expect(mocks.getBookMock).toHaveBeenCalledWith('LOTR1-TEST');
@@ -145,8 +150,10 @@ describe('UpsertBook handler', () => {
       statusDefault: BOOK_STATUSES.NOT_STARTED,
       source: 'Audible',
       seriesKey: 'tolkien|lotr',
+      seriesName: 'The Lord of the Rings',
       seriesId: 'series-id',
-      seriesPos: 1
+      seriesPos: 1,
+      seriesMatch: true
     });
 
     expect(mocks.queryDatabaseMock).not.toHaveBeenCalled();
@@ -157,6 +164,76 @@ describe('UpsertBook handler', () => {
     );
     expect(result.bookId).toBe('existing-page');
     expect(result.status).toBe(BOOK_STATUSES.IN_PROGRESS);
+  });
+
+  it('promotes the status when the import reports further progress', async () => {
+    mocks.getBookMock.mockResolvedValueOnce({
+      asin: 'LOTR1-TEST',
+      title: 'The Fellowship of the Ring',
+      author: 'J. R. R. Tolkien',
+      seriesKey: 'tolkien|lotr',
+      status: BOOK_STATUSES.NOT_STARTED,
+      notionPageId: 'existing-page',
+      updatedAt: 123,
+      owned: true
+    });
+
+    const result = await upsertBook({
+      title: 'The Fellowship of the Ring',
+      author: 'J. R. R. Tolkien',
+      asin: 'LOTR1-TEST',
+      purchasedAt: '2025-08-15',
+      statusDefault: BOOK_STATUSES.FINISHED,
+      source: 'Audible',
+      seriesKey: 'tolkien|lotr',
+      seriesName: 'The Lord of the Rings',
+      seriesId: 'series-id',
+      seriesPos: 1,
+      seriesMatch: true
+    });
+
+    expect(result.status).toBe(BOOK_STATUSES.FINISHED);
+    expect(mocks.buildBookPatchPayloadMock).toHaveBeenCalledWith(
+      expect.objectContaining({ status: BOOK_STATUSES.FINISHED })
+    );
+    expect(mocks.putBookMock).toHaveBeenCalledWith(
+      expect.objectContaining({ status: BOOK_STATUSES.FINISHED })
+    );
+  });
+
+  it('retains the more advanced existing status if the import regresses', async () => {
+    mocks.getBookMock.mockResolvedValueOnce({
+      asin: 'LOTR1-TEST',
+      title: 'The Fellowship of the Ring',
+      author: 'J. R. R. Tolkien',
+      seriesKey: 'tolkien|lotr',
+      status: BOOK_STATUSES.FINISHED,
+      notionPageId: 'existing-page',
+      updatedAt: 123,
+      owned: true
+    });
+
+    const result = await upsertBook({
+      title: 'The Fellowship of the Ring',
+      author: 'J. R. R. Tolkien',
+      asin: 'LOTR1-TEST',
+      purchasedAt: '2025-08-15',
+      statusDefault: BOOK_STATUSES.NOT_STARTED,
+      source: 'Audible',
+      seriesKey: 'tolkien|lotr',
+      seriesName: 'The Lord of the Rings',
+      seriesId: 'series-id',
+      seriesPos: 1,
+      seriesMatch: true
+    });
+
+    expect(result.status).toBe(BOOK_STATUSES.FINISHED);
+    expect(mocks.buildBookPatchPayloadMock).toHaveBeenCalledWith(
+      expect.objectContaining({ status: BOOK_STATUSES.FINISHED })
+    );
+    expect(mocks.putBookMock).toHaveBeenCalledWith(
+      expect.objectContaining({ status: BOOK_STATUSES.FINISHED })
+    );
   });
 
   it('unarchives Notion pages returned from queries before updating', async () => {
@@ -172,8 +249,10 @@ describe('UpsertBook handler', () => {
       statusDefault: BOOK_STATUSES.NOT_STARTED,
       source: 'Audible',
       seriesKey: 'tolkien|lotr',
+      seriesName: 'The Lord of the Rings',
       seriesId: 'series-id',
-      seriesPos: 2
+      seriesPos: 2,
+      seriesMatch: true
     });
 
     expect(mocks.createPageMock).not.toHaveBeenCalled();
@@ -184,35 +263,6 @@ describe('UpsertBook handler', () => {
     expect(result.bookId).toBe('archived-page');
   });
 
-  it('creates synthetic volumes for missing books', async () => {
-    mocks.lookupSeriesVolumesMock.mockResolvedValueOnce([
-      { title: 'The Return of the King', order: 3, author: 'J. R. R. Tolkien' }
-    ]);
-    mocks.createPageMock.mockResolvedValueOnce({ id: 'virtual-page' });
-
-    await upsertBook({
-      title: 'The Two Towers',
-      author: 'J. R. R. Tolkien',
-      asin: 'LOTR2-TEST',
-      purchasedAt: '2025-08-22',
-      statusDefault: BOOK_STATUSES.NOT_STARTED,
-      source: 'Audible',
-      seriesKey: 'tolkien|lotr',
-      seriesId: 'series-id',
-      seriesPos: 2
-    });
-
-    const syntheticCall = mocks.buildBookCreatePayloadMock.mock.calls[1];
-    expect(syntheticCall?.[0]).toBe('books-db');
-    expect(syntheticCall?.[1]).toMatchObject({
-      owned: false,
-      source: 'Open Library'
-    });
-    expect(mocks.putBookMock).toHaveBeenCalledWith(expect.objectContaining({
-      owned: false,
-      asin: expect.stringContaining('virtual:')
-    }));
-  });
 });
 
 describe('UpsertSeries handler', () => {
@@ -239,7 +289,7 @@ describe('UpsertSeries handler', () => {
       updatedAt: 99
     });
 
-    const input = {
+    const input: SeriesMetadataResult = {
       title: 'The Fellowship of the Ring',
       author: 'J. R. R. Tolkien',
       asin: 'LOTR1-TEST',
@@ -248,7 +298,8 @@ describe('UpsertSeries handler', () => {
       source: 'Audible',
       seriesName: 'The Lord of the Rings',
       seriesKey: 'tolkien|lotr',
-      seriesPos: 1
+      seriesPos: 1,
+      seriesMatch: true
     };
 
     const result = await upsertSeries(input);
@@ -260,7 +311,7 @@ describe('UpsertSeries handler', () => {
   });
 
   it('creates a new Notion series page and persists it', async () => {
-    const input = {
+    const input: SeriesMetadataResult = {
       title: 'The Fellowship of the Ring',
       author: 'J. R. R. Tolkien',
       asin: 'LOTR1-TEST',
@@ -269,7 +320,8 @@ describe('UpsertSeries handler', () => {
       source: 'Audible',
       seriesName: 'The Lord of the Rings',
       seriesKey: 'tolkien|lotr',
-      seriesPos: 1
+      seriesPos: 1,
+      seriesMatch: true
     };
 
     const result = await upsertSeries(input);

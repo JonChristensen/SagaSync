@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { loadConfig, logInfo, SAMPLE_LIBRARY } from '@shared';
 
 async function main(): Promise<void> {

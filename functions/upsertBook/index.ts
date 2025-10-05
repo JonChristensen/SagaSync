@@ -1,22 +1,39 @@
 import {
   BOOK_STATUSES,
+  BOOK_STATUS_PRIORITY,
   BookDynamoRecord,
   DynamoGateway,
   NotionGateway,
-  SeriesVolume,
   UpsertBookInput,
   UpsertBookOutput,
   buildBookCreatePayload,
   buildBookQueryPayload,
   buildBookPatchPayload,
-  buildBookStatusPatch,
-  buildOwnedFlagPatch,
   getSecretValue,
   loadConfig,
   logError,
-  logInfo,
-  lookupSeriesVolumes
+  logInfo
 } from '@shared';
+import type { BookStatus } from '@shared';
+
+function pickStatus(current: BookStatus | undefined, next: BookStatus | undefined): BookStatus {
+  if (!current) {
+    return next ?? BOOK_STATUSES.NOT_STARTED;
+  }
+
+  if (!next) {
+    return current;
+  }
+
+  const currentRank = BOOK_STATUS_PRIORITY[current] ?? -1;
+  const nextRank = BOOK_STATUS_PRIORITY[next] ?? -1;
+
+  if (nextRank > currentRank) {
+    return next;
+  }
+
+  return current;
+}
 
 function isConditionalCheckFailed(error: unknown): boolean {
   return (error as { name?: string } | undefined)?.name === 'ConditionalCheckFailedException';
@@ -33,7 +50,9 @@ export async function handler(event: UpsertBookInput): Promise<UpsertBookOutput>
   const config = loadConfig();
   const dynamo = new DynamoGateway(config.seriesTableName, config.booksTableName);
   const existing = await dynamo.getBook(asin);
-  const status = existing?.status ?? event.statusDefault ?? BOOK_STATUSES.NOT_STARTED;
+  const status = pickStatus(existing?.status, event.statusDefault);
+  const shouldTreatAsSeries = Boolean(event.seriesMatch || existing?.seriesMatch);
+  const owned = event.ownedHint ?? existing?.owned ?? true;
 
   const token = await getSecretValue(config.notionTokenSecretName);
   const notion = new NotionGateway(token);
@@ -50,11 +69,11 @@ export async function handler(event: UpsertBookInput): Promise<UpsertBookOutput>
     title: event.title,
     asin,
     status,
-    seriesPageId: event.seriesId,
+    seriesPageId: shouldTreatAsSeries ? event.seriesId : undefined,
     seriesOrder: event.seriesPos ?? null,
     purchasedAt: event.purchasedAt,
     source: event.source,
-    owned: true
+    owned
   };
 
   if (!notionPageId) {
@@ -80,7 +99,8 @@ export async function handler(event: UpsertBookInput): Promise<UpsertBookOutput>
     seriesOrder: event.seriesPos ?? null,
     purchasedAt: event.purchasedAt,
     updatedAt: Date.now(),
-    owned: true
+    owned,
+    seriesMatch: shouldTreatAsSeries
   };
 
   try {
@@ -93,141 +113,19 @@ export async function handler(event: UpsertBookInput): Promise<UpsertBookOutput>
           asin,
           bookId: latest.notionPageId,
           status: latest.status,
-          seriesId: event.seriesId
+          seriesId: shouldTreatAsSeries ? event.seriesId : undefined,
+          seriesMatch: latest.seriesMatch !== false
         };
       }
     }
     throw error;
   }
 
-  await ensureSeriesCompleteness({
-    seriesKey: event.seriesKey,
-    seriesName: event.seriesName,
-    seriesId: event.seriesId,
-    dynamo,
-    notion,
-    booksDatabaseId: config.notionBooksDatabaseId
-  });
-
   return {
     asin,
     bookId: notionPageId,
     status,
-    seriesId: event.seriesId
+    seriesId: shouldTreatAsSeries ? event.seriesId : undefined,
+    seriesMatch: shouldTreatAsSeries
   };
-}
-
-function slugify(input: string, maxLength = 40): string {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, maxLength);
-}
-
-function buildVirtualAsin(seriesKey: string, volume: SeriesVolume): string {
-  const base = slugify(seriesKey);
-  const titleSlug = slugify(volume.title);
-  const orderPart = volume.order !== null ? `-${volume.order}` : '';
-  return `virtual:${base}${orderPart}-${titleSlug}`;
-}
-
-async function ensureSeriesCompleteness(params: {
-  seriesKey: string;
-  seriesName: string;
-  seriesId?: string;
-  dynamo: DynamoGateway;
-  notion: NotionGateway;
-  booksDatabaseId: string;
-}): Promise<void> {
-  const { seriesKey, seriesName, seriesId, dynamo, notion, booksDatabaseId } = params;
-
-  if (!seriesId) return;
-
-  const volumes = await lookupSeriesVolumes(seriesName);
-  if (volumes.length === 0) return;
-
-  const existingBooks = await dynamo.listBooksBySeries(seriesKey);
-  const existingByKey = new Map<string, BookDynamoRecord>();
-
-  const matchKey = (title: string, order: number | null) => `${order ?? 'x'}|${title.toLowerCase()}`;
-
-  for (const book of existingBooks) {
-    existingByKey.set(matchKey(book.title, book.seriesOrder ?? null), book);
-  }
-
-  let created = 0;
-
-  for (const volume of volumes) {
-    const key = matchKey(volume.title, volume.order);
-    if (existingByKey.has(key)) continue;
-
-    const virtualAsin = buildVirtualAsin(seriesKey, volume);
-    const existingVirtual = existingBooks.find((book) => book.asin === virtualAsin);
-
-    const baseRecord: BookDynamoRecord = existingVirtual ?? {
-      asin: virtualAsin,
-      title: volume.title,
-      author: volume.author ?? 'Unknown',
-      seriesKey,
-      status: BOOK_STATUSES.NOT_STARTED,
-      seriesOrder: volume.order,
-      purchasedAt: '',
-      updatedAt: Date.now(),
-      owned: false
-    };
-
-    let notionPageId = baseRecord.notionPageId;
-
-    if (!notionPageId) {
-      try {
-        const notionPage = await notion.createPage(
-          buildBookCreatePayload(booksDatabaseId, {
-            title: baseRecord.title,
-            asin: baseRecord.asin,
-            status: baseRecord.status,
-            seriesPageId: seriesId,
-            seriesOrder: baseRecord.seriesOrder ?? null,
-            purchasedAt: '',
-            source: 'Open Library',
-            owned: false
-          })
-        );
-        notionPageId = notionPage.id;
-      } catch (error) {
-        logError('Failed to create Notion page for synthetic series volume', {
-          error,
-          asin: baseRecord.asin
-        });
-        continue;
-      }
-    } else {
-      try {
-        await notion.updatePage(notionPageId, {
-          ...buildBookStatusPatch(baseRecord.status),
-          ...buildOwnedFlagPatch(false),
-          archived: false
-        });
-      } catch (error) {
-        logError('Failed to refresh Notion synthetic volume', {
-          error,
-          asin: baseRecord.asin
-        });
-      }
-    }
-
-    await dynamo.putBook({
-      ...baseRecord,
-      notionPageId,
-      owned: false,
-      updatedAt: Date.now()
-    });
-
-    existingByKey.set(key, baseRecord);
-    created += 1;
-  }
-
-  if (created > 0) {
-    logInfo('Synthetic series volumes created', { seriesKey, created });
-  }
 }

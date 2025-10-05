@@ -1,4 +1,5 @@
 export type BookStatus = 'Not started' | 'In progress' | 'Finished' | 'La Poubelle';
+export type BookSource = 'Audible' | 'AudibleSeries';
 
 export interface NormalizedCsvRow {
   title: string;
@@ -6,25 +7,18 @@ export interface NormalizedCsvRow {
   asin: string;
   purchasedAt: string;
   statusDefault: BookStatus;
-  source: 'Audible' | 'Open Library';
+  source: BookSource;
+  seriesNameHint?: string;
+  seriesSequenceHint?: number | null;
+  seriesParentAsin?: string;
+  ownedHint?: boolean;
 }
 
-export interface OpenLibraryLookupInput extends NormalizedCsvRow {}
-
-export interface OpenLibraryDoc {
-  title?: string;
-  author_name?: string[];
-  series?: string[];
-}
-
-export interface OpenLibraryResponse {
-  docs: OpenLibraryDoc[];
-}
-
-export interface OpenLibraryLookupOutput extends NormalizedCsvRow {
+export interface SeriesMetadataResult extends NormalizedCsvRow {
   seriesName: string;
   seriesPos: number | null;
   seriesKey: string;
+  seriesMatch: boolean;
 }
 
 export interface UpsertSeriesInput {
@@ -34,24 +28,26 @@ export interface UpsertSeriesInput {
 
 export interface UpsertSeriesOutput {
   seriesKey: string;
-  seriesId: string;
+  seriesId?: string;
 }
 
-export interface UpsertBookInput extends OpenLibraryLookupOutput {
-  seriesId: string;
+export interface UpsertBookInput extends SeriesMetadataResult {
+  seriesId?: string;
 }
 
 export interface UpsertBookOutput {
   asin: string;
   bookId: string;
   status: BookStatus;
-  seriesId: string;
+  seriesId?: string;
+  seriesMatch: boolean;
 }
 
 export interface CascadeIfNeededInput {
   seriesKey?: string;
   asin?: string;
   status: BookStatus;
+  seriesMatch?: boolean;
 }
 
 export interface CascadeIfNeededOutput {
@@ -92,6 +88,8 @@ export interface BookDynamoRecord {
   purchasedAt?: string;
   updatedAt: number;
   owned?: boolean;
+  source?: BookSource;
+  seriesMatch?: boolean;
 }
 
 export interface SeriesDynamoRecord {
@@ -162,10 +160,4 @@ export interface NotionQueryPayload {
 
 export interface NotionQueryResponse {
   results: NotionPage[];
-}
-
-export interface SeriesVolume {
-  title: string;
-  author?: string;
-  order: number | null;
 }

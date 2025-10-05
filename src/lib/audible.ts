@@ -15,6 +15,9 @@ interface AudibleCsvRecord {
   'Product ID'?: string;
   'Purchase Date'?: string;
   'Listening Status'?: string;
+  'Series Title'?: string;
+  'Series Sequence'?: string;
+  'Series Parent ASIN'?: string;
 }
 
 function toBookStatus(statusRaw?: string) {
@@ -47,6 +50,16 @@ function pick<T>(record: T, keys: Array<keyof T>): string | undefined {
   return undefined;
 }
 
+function parseSeriesSequence(raw?: string): number | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const numeric = trimmed.match(/^-?\d+(?:\.\d+)?$/);
+  if (!numeric) return null;
+  const value = Number.parseFloat(numeric[0]);
+  return Number.isNaN(value) ? null : value;
+}
+
 export function parseAudibleCsv(csvContents: string, options: AudibleCsvOptions = {}): NormalizedCsvRow[] {
   const records = parse(csvContents, {
     columns: true,
@@ -75,6 +88,10 @@ export function parseAudibleCsv(csvContents: string, options: AudibleCsvOptions 
 
       const purchasedAt = pick(record, ['Purchase Date']);
       const status = toBookStatus(record['Listening Status']);
+      const seriesTitle = pick(record, ['Series Title']);
+      const seriesSequenceRaw = pick(record, ['Series Sequence']);
+      const seriesParentAsin = pick(record, ['Series Parent ASIN']);
+      const seriesSequence = parseSeriesSequence(seriesSequenceRaw);
 
       const normalized: NormalizedCsvRow = {
         title,
@@ -82,7 +99,11 @@ export function parseAudibleCsv(csvContents: string, options: AudibleCsvOptions 
         asin,
         purchasedAt: purchasedAt ?? '',
         statusDefault: status,
-        source
+        source,
+        seriesNameHint: seriesTitle,
+        seriesSequenceHint: seriesSequence,
+        seriesParentAsin: seriesParentAsin,
+        ownedHint: true
       };
 
       return normalized;

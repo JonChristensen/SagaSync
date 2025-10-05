@@ -138,7 +138,8 @@ describe('cascadeIfNeeded handler', () => {
     const result = await cascadeIfNeeded({
       seriesKey: 'tolkien|lotr',
       asin: 'LOTR2-TEST',
-      status: BOOK_STATUSES.LA_POUBELLE
+      status: BOOK_STATUSES.LA_POUBELLE,
+      seriesMatch: true
     });
 
     expect(result.seriesFinalStatus).toBe(BOOK_STATUSES.LA_POUBELLE);
@@ -201,7 +202,8 @@ describe('cascadeIfNeeded handler', () => {
     const result = await cascadeIfNeeded({
       seriesKey: 'tolkien|lotr',
       asin: 'LOTR3-TEST',
-      status: BOOK_STATUSES.FINISHED
+      status: BOOK_STATUSES.FINISHED,
+      seriesMatch: true
     });
 
     expect(result.seriesFinalStatus).toBe(BOOK_STATUSES.FINISHED);
@@ -209,5 +211,127 @@ describe('cascadeIfNeeded handler', () => {
     expect(mocks.putSeriesMock).toHaveBeenCalledWith(expect.objectContaining({
       finalStatus: BOOK_STATUSES.FINISHED
     }));
+  });
+
+  it('sets series final status to In progress when some books are finished and others not started', async () => {
+    mocks.getBookMock.mockResolvedValue({
+      asin: 'PARIS-FINISHED',
+      title: 'Paris',
+      author: 'Andy Warhol',
+      seriesKey: 'paris|series',
+      status: BOOK_STATUSES.FINISHED,
+      updatedAt: 200,
+      owned: true
+    });
+
+    mocks.listBooksBySeriesMock.mockResolvedValue([
+      {
+        asin: 'PARIS-FINISHED',
+        title: 'Paris',
+        author: 'Andy Warhol',
+        seriesKey: 'paris|series',
+        status: BOOK_STATUSES.FINISHED,
+        notionPageId: 'paris-finished',
+        updatedAt: 200,
+        owned: true
+      },
+      {
+        asin: 'PARIS-NOT-STARTED',
+        title: 'Another Paris Title',
+        author: 'Andy Warhol',
+        seriesKey: 'paris|series',
+        status: BOOK_STATUSES.NOT_STARTED,
+        notionPageId: 'paris-not-started',
+        updatedAt: 100,
+        owned: true
+      }
+    ]);
+
+    const result = await cascadeIfNeeded({
+      seriesKey: 'paris|series',
+      asin: 'PARIS-FINISHED',
+      status: BOOK_STATUSES.FINISHED,
+      seriesMatch: true
+    });
+
+    expect(result.seriesFinalStatus).toBe(BOOK_STATUSES.IN_PROGRESS);
+    expect(mocks.putSeriesMock).toHaveBeenCalledWith(expect.objectContaining({
+      finalStatus: BOOK_STATUSES.IN_PROGRESS
+    }));
+  });
+
+  it('throws when the Notion final-status update fails so Dynamo is not updated', async () => {
+    const notionError = new Error('rate limited');
+    (notionError as Error & { status?: number }).status = 429;
+
+    mocks.getBookMock.mockResolvedValue({
+      asin: 'LOTR3-TEST',
+      title: 'The Return of the King',
+      author: 'J. R. R. Tolkien',
+      seriesKey: 'tolkien|lotr',
+      status: BOOK_STATUSES.FINISHED,
+      notionPageId: 'book-3',
+      updatedAt: 120,
+      owned: true
+    });
+
+    mocks.listBooksBySeriesMock.mockResolvedValue([
+      {
+        asin: 'LOTR1-TEST',
+        title: 'The Fellowship of the Ring',
+        author: 'J. R. R. Tolkien',
+        seriesKey: 'tolkien|lotr',
+        status: BOOK_STATUSES.FINISHED,
+        notionPageId: 'book-1',
+        updatedAt: 90,
+        owned: true
+      },
+      {
+        asin: 'LOTR2-TEST',
+        title: 'The Two Towers',
+        author: 'J. R. R. Tolkien',
+        seriesKey: 'tolkien|lotr',
+        status: BOOK_STATUSES.FINISHED,
+        notionPageId: 'book-2',
+        updatedAt: 95,
+        owned: true
+      },
+      {
+        asin: 'LOTR3-TEST',
+        title: 'The Return of the King',
+        author: 'J. R. R. Tolkien',
+        seriesKey: 'tolkien|lotr',
+        status: BOOK_STATUSES.FINISHED,
+        notionPageId: 'book-3',
+        updatedAt: 120,
+        owned: true
+      }
+    ]);
+
+    mocks.updatePageMock.mockRejectedValue(notionError);
+
+    await expect(
+      cascadeIfNeeded({
+        seriesKey: 'tolkien|lotr',
+        asin: 'LOTR3-TEST',
+        status: BOOK_STATUSES.FINISHED,
+        seriesMatch: true
+      })
+    ).rejects.toThrow('rate limited');
+
+    expect(mocks.putSeriesMock).not.toHaveBeenCalled();
+  });
+
+  it('skips cascade when seriesMatch is false', async () => {
+    const result = await cascadeIfNeeded({
+      seriesKey: 'standalone',
+      asin: 'SA-1',
+      status: BOOK_STATUSES.FINISHED,
+      seriesMatch: false
+    });
+
+    expect(result.updatedBookCount).toBe(0);
+    expect(result.seriesFinalStatus).toBe(BOOK_STATUSES.FINISHED);
+    expect(mocks.listBooksBySeriesMock).not.toHaveBeenCalled();
   });
 });

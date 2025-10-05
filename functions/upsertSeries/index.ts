@@ -1,7 +1,7 @@
 import {
   DynamoGateway,
-  OpenLibraryLookupOutput,
   SeriesDynamoRecord,
+  SeriesMetadataResult,
   UpsertSeriesOutput,
   buildSeriesCreatePayload,
   buildSeriesQueryPayload,
@@ -16,10 +16,16 @@ function isConditionalCheckFailed(error: unknown): boolean {
   return (error as { name?: string } | undefined)?.name === 'ConditionalCheckFailedException';
 }
 
-type UpsertSeriesEvent = OpenLibraryLookupOutput;
+type UpsertSeriesEvent = SeriesMetadataResult;
 
 export async function handler(event: UpsertSeriesEvent): Promise<UpsertSeriesEvent & UpsertSeriesOutput> {
   logInfo('UpsertSeries invoked', { seriesKey: event.seriesKey });
+
+  if (event.seriesMatch === false) {
+    logInfo('Skipping series upsert for standalone book', { seriesKey: event.seriesKey });
+    return { ...event, seriesId: undefined };
+  }
+
   const config = loadConfig();
   const dynamo = new DynamoGateway(config.seriesTableName, config.booksTableName);
   const existing = await dynamo.getSeries(event.seriesKey);

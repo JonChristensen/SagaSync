@@ -72,7 +72,7 @@ export class SagaSyncStack extends Stack {
         timeout: Duration.seconds(30)
       });
 
-    const openLibraryFn = createLambda('OpenLibraryLookupFn', '../../functions/openLibraryLookup/index.ts');
+    const seriesMetadataFn = createLambda('SeriesMetadataFn', '../../functions/seriesMetadata/index.ts');
     const upsertSeriesFn = createLambda('UpsertSeriesFn', '../../functions/upsertSeries/index.ts');
     const upsertBookFn = createLambda('UpsertBookFn', '../../functions/upsertBook/index.ts');
     const cascadeFn = createLambda('CascadeFn', '../../functions/cascade/index.ts');
@@ -101,7 +101,7 @@ export class SagaSyncStack extends Stack {
     notionToken.grantRead(webhookFinishedFn);
 
     const openLibraryStep = new tasks.LambdaInvoke(this, 'LookupSeriesMetadata', {
-      lambdaFunction: openLibraryFn,
+      lambdaFunction: seriesMetadataFn,
       outputPath: '$.Payload'
     });
     openLibraryStep.addRetry({ errors: ['States.TaskFailed'], interval: Duration.seconds(2), maxAttempts: 3, backoffRate: 2 });

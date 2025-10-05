@@ -1,9 +1,18 @@
+import type { BookStatus } from './types';
+
 export const BOOK_STATUSES = {
   NOT_STARTED: 'Not started',
   IN_PROGRESS: 'In progress',
   FINISHED: 'Finished',
   LA_POUBELLE: 'La Poubelle'
 } as const;
+
+export const BOOK_STATUS_PRIORITY: Record<BookStatus, number> = {
+  [BOOK_STATUSES.NOT_STARTED]: 0,
+  [BOOK_STATUSES.IN_PROGRESS]: 1,
+  [BOOK_STATUSES.FINISHED]: 2,
+  [BOOK_STATUSES.LA_POUBELLE]: 3
+};
 
 export const NOTION_VERSION = '2022-06-28';
 export const DEFAULT_TIME_ZONE = 'America/Denver';

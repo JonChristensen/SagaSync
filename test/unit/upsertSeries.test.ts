@@ -10,7 +10,8 @@ const input = {
   source: 'Audible' as const,
   seriesKey: 'j. r. r. tolkien|the lord of the rings',
   seriesName: 'The Lord of the Rings',
-  seriesPos: 1
+  seriesPos: 1,
+  seriesMatch: true
 };
 
 describe('upsertSeries handler (scaffold)', () => {
@@ -18,5 +19,10 @@ describe('upsertSeries handler (scaffold)', () => {
     const result = await upsertSeries(input);
     expect(result.seriesKey).toBe(input.seriesKey);
     expect(result.seriesId).toBeTruthy();
+  });
+
+  test('skips creating a series when seriesMatch is false', async () => {
+    const result = await upsertSeries({ ...input, seriesMatch: false });
+    expect(result.seriesId).toBeUndefined();
   });
 });

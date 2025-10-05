@@ -9,31 +9,34 @@ import {
   logInfo
 } from '@shared';
 import { handler as cascadeHandler } from '@functions/cascade';
+import { parseWebhookPayload } from '../common/parseWebhookPayload';
+import type { BookStatus } from '@shared';
 
 type WebhookEvent = { asin?: string; status?: string; body?: string };
 
-function extractDetails(event: WebhookEvent): { asin?: string; status?: string } {
-  if (event.asin || event.status) {
-    return { asin: event.asin, status: event.status };
-  }
+function normalizeStatus(rawStatus?: string): BookStatus | undefined {
+  if (!rawStatus) return undefined;
+  const normalized = rawStatus.trim().toLowerCase();
 
-  if (event.body) {
-    try {
-      const parsed = JSON.parse(event.body) as { asin?: string; status?: string };
-      return parsed;
-    } catch {
-      return {};
+  for (const status of Object.values(BOOK_STATUSES)) {
+    if (status.toLowerCase() === normalized) {
+      return status;
     }
   }
 
-  return {};
+  if (normalized === 'dnf') {
+    return BOOK_STATUSES.LA_POUBELLE;
+  }
+
+  return undefined;
 }
 
 export async function handler(event: WebhookEvent): Promise<{ statusCode: number; body: string }> {
-  const { asin: rawAsin, status: rawStatus } = extractDetails(event);
-  const asin = rawAsin?.trim();
+  const { asin, status } = parseWebhookPayload(event);
+  const resolvedAsin = asin?.trim();
+  const normalizedStatus = normalizeStatus(status);
 
-  if (!asin) {
+  if (!resolvedAsin) {
     logError('WebhookFinished missing ASIN', { event });
     return {
       statusCode: 400,
@@ -41,12 +44,12 @@ export async function handler(event: WebhookEvent): Promise<{ statusCode: number
     };
   }
 
-  const targetStatus = (rawStatus as typeof BOOK_STATUSES[keyof typeof BOOK_STATUSES]) ?? BOOK_STATUSES.FINISHED;
-  logInfo('WebhookFinished received', { asin, targetStatus });
+  const targetStatus = normalizedStatus ?? BOOK_STATUSES.FINISHED;
+  logInfo('WebhookFinished received', { asin: resolvedAsin, targetStatus, rawStatus: status });
 
   const config = loadConfig();
   const dynamo = new DynamoGateway(config.seriesTableName, config.booksTableName);
-  const book = await dynamo.getBook(asin);
+  const book = await dynamo.getBook(resolvedAsin);
 
   if (!book) {
     logError('WebhookFinished book not found', { asin });
@@ -57,9 +60,15 @@ export async function handler(event: WebhookEvent): Promise<{ statusCode: number
   }
 
   if (book.status === targetStatus) {
+    await cascadeHandler({
+      asin: resolvedAsin,
+      seriesKey: book.seriesKey,
+      status: targetStatus
+    });
+
     return {
       statusCode: 202,
-      body: JSON.stringify({ ok: true, cascade: false })
+      body: JSON.stringify({ ok: true, cascade: true })
     };
   }
 
@@ -82,7 +91,7 @@ export async function handler(event: WebhookEvent): Promise<{ statusCode: number
   }
 
   await cascadeHandler({
-    asin,
+    asin: resolvedAsin,
     seriesKey: book.seriesKey,
     status: targetStatus
   });

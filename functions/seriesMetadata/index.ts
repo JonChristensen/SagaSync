@@ -1,6 +1,6 @@
-import { lookupSeriesMetadata, OpenLibraryLookupOutput, StepFunctionInput, logError, logInfo } from '@shared';
+import { lookupSeriesMetadata, SeriesMetadataResult, StepFunctionInput, logError, logInfo } from '@shared';
 
-export async function handler(event: StepFunctionInput): Promise<OpenLibraryLookupOutput> {
+export async function handler(event: StepFunctionInput): Promise<SeriesMetadataResult> {
   const row = event.item;
   if (!row) {
     logError('LookupSeriesMetadata missing item payload', { event });
@@ -8,6 +8,5 @@ export async function handler(event: StepFunctionInput): Promise<OpenLibraryLook
   }
 
   logInfo('LookupSeriesMetadata invoked', { asin: row.asin });
-  // TODO: call Open Library API and merge response before returning.
   return lookupSeriesMetadata(row);
 }

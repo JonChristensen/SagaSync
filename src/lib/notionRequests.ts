@@ -87,7 +87,7 @@ export interface BookPropertiesArgs {
   title: string;
   asin: string;
   status: BookStatus;
-  seriesPageId: string;
+  seriesPageId?: string;
   seriesOrder: number | null;
   purchasedAt: string;
   source: string;
@@ -124,11 +124,15 @@ export function buildOwnedFlagPatch(owned: boolean): NotionPatchPagePayload {
 }
 
 function buildBookProperties(props: BookPropertiesArgs): Record<string, NotionPropertyValue> {
+  const seriesRelation = props.seriesPageId
+    ? relationProperty(props.seriesPageId)
+    : ({ relation: [] } as NotionRelationProperty);
+
   return {
     Name: titleProperty(props.title),
     ASIN: richTextProperty(props.asin),
     Status: statusProperty(props.status),
-    Series: relationProperty(props.seriesPageId),
+    Series: seriesRelation,
     'Series Order': numberProperty(props.seriesOrder),
     'Purchased At': dateProperty(props.purchasedAt),
     Source: selectProperty(props.source),

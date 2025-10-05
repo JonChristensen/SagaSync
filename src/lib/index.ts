@@ -2,7 +2,7 @@ export * from './types';
 export * from './constants';
 export * from './config';
 export * from './logger';
-export * from './openLibrary';
+export * from './seriesMetadata';
 export * from './dynamodb';
 export * from './notion';
 export * from './notionRequests';

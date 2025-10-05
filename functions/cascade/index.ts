@@ -11,22 +11,44 @@ import {
   logError,
   logInfo
 } from '@shared';
+import type { BookStatus } from '@shared';
 
-function determineSeriesFinalStatus(statuses: string[]): string {
-  if (statuses.every((status) => status === BOOK_STATUSES.FINISHED)) {
+function determineSeriesFinalStatus(statuses: BookStatus[]): BookStatus {
+  if (statuses.length === 0) {
+    return BOOK_STATUSES.NOT_STARTED;
+  }
+
+  const allFinished = statuses.every((status) => status === BOOK_STATUSES.FINISHED);
+  if (allFinished) {
     return BOOK_STATUSES.FINISHED;
   }
+
   if (statuses.includes(BOOK_STATUSES.LA_POUBELLE)) {
     return BOOK_STATUSES.LA_POUBELLE;
   }
+
   if (statuses.some((status) => status === BOOK_STATUSES.IN_PROGRESS)) {
     return BOOK_STATUSES.IN_PROGRESS;
   }
+
+  if (statuses.some((status) => status === BOOK_STATUSES.FINISHED)) {
+    return BOOK_STATUSES.IN_PROGRESS;
+  }
+
   return BOOK_STATUSES.NOT_STARTED;
 }
 
 export async function handler(event: CascadeIfNeededInput): Promise<CascadeIfNeededOutput> {
   logInfo('CascadeIfNeeded invoked', { cascadeInput: event });
+
+  if (event.seriesMatch === false) {
+    logInfo('Cascade skipped: standalone entry', { event });
+    return {
+      updatedBookCount: 0,
+      seriesFinalStatus: event.status
+    };
+  }
+
   const config = loadConfig();
   const dynamo = new DynamoGateway(config.seriesTableName, config.booksTableName);
 
@@ -42,8 +64,18 @@ export async function handler(event: CascadeIfNeededInput): Promise<CascadeIfNee
     };
   }
 
+  if (targetBook?.seriesMatch === false) {
+    logInfo('Cascade skipped: target book marked standalone', { seriesKey, asin: targetBook.asin });
+    return {
+      updatedBookCount: 0,
+      seriesFinalStatus: targetBook.status ?? event.status
+    };
+  }
+
   const books = await dynamo.listBooksBySeries(seriesKey);
-  if (books.length === 0) {
+  const relevantBooks = books.filter((book) => book.seriesMatch !== false);
+
+  if (relevantBooks.length === 0) {
     logInfo('Cascade skipped: no books found for series', { seriesKey });
     return {
       updatedBookCount: 0,
@@ -59,7 +91,7 @@ export async function handler(event: CascadeIfNeededInput): Promise<CascadeIfNee
   let finalStatus = seriesRecord?.finalStatus ?? BOOK_STATUSES.NOT_STARTED;
 
   if (event.status === BOOK_STATUSES.LA_POUBELLE) {
-    for (const book of books) {
+    for (const book of relevantBooks) {
       if (book.status === BOOK_STATUSES.FINISHED || book.status === BOOK_STATUSES.LA_POUBELLE) {
         continue;
       }
@@ -86,12 +118,12 @@ export async function handler(event: CascadeIfNeededInput): Promise<CascadeIfNee
 
     finalStatus = BOOK_STATUSES.LA_POUBELLE;
   } else if (event.status === BOOK_STATUSES.FINISHED) {
-    const statuses = books.map((book) =>
+    const statuses = relevantBooks.map((book) =>
       event.asin && book.asin === event.asin ? BOOK_STATUSES.FINISHED : book.status
     );
     finalStatus = determineSeriesFinalStatus(statuses);
   } else {
-    const statuses = books.map((book) =>
+    const statuses = relevantBooks.map((book) =>
       event.asin && book.asin === event.asin && event.status ? event.status : book.status
     );
     finalStatus = determineSeriesFinalStatus(statuses);
@@ -105,6 +137,7 @@ export async function handler(event: CascadeIfNeededInput): Promise<CascadeIfNee
       });
     } catch (error) {
       logError('Failed to update Notion series final status', { error, seriesKey });
+      throw error;
     }
   }
 
