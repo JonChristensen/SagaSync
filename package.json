@@ -16,7 +16,8 @@
     "import:audible": "ts-node -r tsconfig-paths/register scripts/importAudible.ts",
     "audible:export": "python scripts/download_audible.py",
     "notion:reset": "ts-node -r tsconfig-paths/register scripts/notionReset.ts",
-    "series:recompute": "ts-node -r tsconfig-paths/register scripts/recomputeSeries.ts"
+    "series:recompute": "ts-node -r tsconfig-paths/register scripts/recomputeSeries.ts",
+    "books:dedupe": "ts-node -r tsconfig-paths/register scripts/dedupeNotionBooks.ts"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
